@@ -1,0 +1,908 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Visor de Vuelo RC Pro (Contraste Extremo)</title>
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        :root {
+            --panel-bg: rgba(20, 20, 25, 0.95);
+            --accent-blue: #00d2ff;
+            --accent-green: #00e676;
+            --text-main: #ffffff;
+            --text-muted: #a0a0b0;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        html, body, #map {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #111;
+        }
+
+        /* Panel Superior / Carga */
+        .top-panel {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 1000;
+            background: var(--panel-bg);
+            border: 1px solid #333344;
+            backdrop-filter: blur(10px);
+            padding: 15px 20px;
+            border-radius: 12px;
+            color: var(--text-main);
+            box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            width: 340px;
+        }
+
+        .title-box {
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: var(--accent-blue);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .drop-card {
+            border: 2px dashed var(--accent-blue);
+            border-radius: 8px;
+            padding: 10px;
+            text-align: center;
+            cursor: pointer;
+            background: rgba(0, 210, 255, 0.05);
+            transition: all 0.2s;
+        }
+
+        .drop-card:hover {
+            background: rgba(0, 210, 255, 0.15);
+            border-color: var(--accent-green);
+        }
+
+        .drop-title {
+            font-size: 0.85rem;
+            font-weight: bold;
+        }
+
+        .drop-status {
+            font-size: 0.75rem;
+            margin-top: 4px;
+            color: var(--accent-green);
+            font-weight: 600;
+        }
+
+        .map-selector {
+            background: #2a2a35;
+            color: white;
+            border: 1px solid #444;
+            border-radius: 6px;
+            padding: 6px;
+            font-size: 0.8rem;
+            width: 100%;
+            cursor: pointer;
+        }
+
+        .section-label {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            font-weight: bold;
+            display: block;
+            margin-bottom: 4px;
+            text-transform: uppercase;
+        }
+
+        /* Control de Suavizado (Máximo 5 puntos) */
+        .smooth-box {
+            background: rgba(0,0,0,0.3);
+            padding: 8px 10px;
+            border-radius: 6px;
+            border: 1px solid #333;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .smooth-header {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.75rem;
+        }
+
+        .smooth-slider {
+            width: 100%;
+            accent-color: var(--accent-blue);
+            cursor: pointer;
+        }
+
+        /* Cuadro de KPIs Personalizables */
+        .telemetry-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            border-top: 1px solid #333;
+            padding-top: 10px;
+        }
+
+        .tele-item {
+            background: rgba(0,0,0,0.4);
+            padding: 8px;
+            border-radius: 6px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .tele-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .kpi-select {
+            background: #22222a;
+            color: var(--accent-blue);
+            border: 1px solid #444;
+            border-radius: 4px;
+            font-size: 0.65rem;
+            padding: 2px;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        .stat-select {
+            background: #22222a;
+            color: var(--text-muted);
+            border: 1px solid #444;
+            border-radius: 4px;
+            font-size: 0.6rem;
+            padding: 2px;
+            cursor: pointer;
+        }
+
+        .tele-val {
+            font-size: 1.1rem;
+            font-weight: bold;
+            color: var(--accent-green);
+            margin-top: 2px;
+        }
+
+        /* Leyenda de Velocidad (Amarillo casi blanco -> Rojo casi negro) */
+        .speed-legend {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            border-top: 1px solid #333;
+            padding-top: 8px;
+            font-size: 0.7rem;
+            color: var(--text-muted);
+        }
+        .legend-bar {
+            height: 8px;
+            border-radius: 4px;
+            background: linear-gradient(to right, #ffffe0, #ff4500, #380000);
+        }
+        .legend-labels {
+            display: flex;
+            justify-content: space-between;
+            font-weight: bold;
+        }
+
+        /* Control de Reproducción Inferior */
+        .player-panel {
+            position: absolute;
+            bottom: 25px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 1000;
+            background: var(--panel-bg);
+            border: 1px solid #333344;
+            backdrop-filter: blur(10px);
+            padding: 10px 20px;
+            border-radius: 30px;
+            color: var(--text-main);
+            box-shadow: 0 8px 32px rgba(0,0,0,0.7);
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            width: 90%;
+            max-width: 800px;
+        }
+
+        .btn-ctrl {
+            background: rgba(255,255,255,0.1);
+            border: none;
+            color: white;
+            font-size: 1rem;
+            cursor: pointer;
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.2s;
+        }
+
+        .btn-ctrl:hover {
+            background: rgba(255,255,255,0.25);
+        }
+
+        .btn-play {
+            background: var(--accent-blue);
+            color: #000;
+            font-weight: bold;
+        }
+
+        .btn-play:hover {
+            background: var(--accent-green);
+        }
+
+        .timeline-slider {
+            flex: 1;
+            accent-color: var(--accent-blue);
+            cursor: pointer;
+        }
+
+        .time-display {
+            font-family: monospace;
+            font-size: 0.85rem;
+            min-width: 65px;
+            text-align: center;
+        }
+
+        .speed-select {
+            background: #2a2a35;
+            color: white;
+            border: 1px solid #444;
+            border-radius: 6px;
+            padding: 4px 6px;
+            font-size: 0.8rem;
+            cursor: pointer;
+        }
+
+        .cam-toggle {
+            font-size: 0.8rem;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            cursor: pointer;
+            user-select: none;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Contenedor del Mapa -->
+    <div id="map"></div>
+
+    <!-- Panel Superior -->
+    <div class="top-panel">
+        <div class="title-box">✈️ Visor de Vuelo RC Pro</div>
+        
+        <div class="drop-card" onclick="document.getElementById('csvInput').click()">
+            <div class="drop-title">📁 Cargar archivo CSV</div>
+            <div id="statusText" class="drop-status">Esperando archivo...</div>
+            <input type="file" id="csvInput" accept=".csv" style="display:none;" onchange="cargarCSV(this.files[0])">
+        </div>
+
+        <div>
+            <span class="section-label">Capa de Mapa:</span>
+            <select class="map-selector" id="mapType" onchange="cambiarCapaMapa(this.value)">
+                <option value="googleSat">Google Satélite</option>
+                <option value="googleStreets">Google Calles</option>
+                <option value="esriSat">Esri World Imagery</option>
+                <option value="osm">OpenStreetMap</option>
+            </select>
+        </div>
+
+        <!-- Barra de Suavizado (Máximo 5 puntos) -->
+        <div class="smooth-box">
+            <div class="smooth-header">
+                <span class="section-label" style="margin:0;">Suavizado (Filtro Ruido):</span>
+                <span id="smoothValLabel" style="color: var(--accent-blue); font-weight: bold;">0 (Off)</span>
+            </div>
+            <input type="range" class="smooth-slider" id="smoothSlider" min="0" max="5" value="0" step="1" oninput="cambiarSuavizado(this.value)">
+        </div>
+
+        <!-- KPIs Personalizables -->
+        <div>
+            <span class="section-label">Panel de KPIs:</span>
+            <div class="telemetry-grid">
+                <!-- KPI 1 -->
+                <div class="tele-item">
+                    <div class="tele-header">
+                        <select class="kpi-select" id="kpiMetric1" onchange="actualizarKPIs()">
+                            <option value="vel" selected>Velocidad</option>
+                            <option value="alt">Altitud</option>
+                            <option value="dist">Distancia</option>
+                            <option value="pts">Puntos CSV</option>
+                        </select>
+                        <select class="stat-select" id="kpiStat1" onchange="actualizarKPIs()">
+                            <option value="inst" selected>Actual</option>
+                            <option value="min">Mín</option>
+                            <option value="avg">Prom</option>
+                            <option value="max">Máx</option>
+                        </select>
+                    </div>
+                    <div class="tele-val" id="kpiVal1">0.0</div>
+                </div>
+
+                <!-- KPI 2 -->
+                <div class="tele-item">
+                    <div class="tele-header">
+                        <select class="kpi-select" id="kpiMetric2" onchange="actualizarKPIs()">
+                            <option value="vel">Velocidad</option>
+                            <option value="alt" selected>Altitud</option>
+                            <option value="dist">Distancia</option>
+                            <option value="pts">Puntos CSV</option>
+                        </select>
+                        <select class="stat-select" id="kpiStat2" onchange="actualizarKPIs()">
+                            <option value="inst" selected>Actual</option>
+                            <option value="min">Mín</option>
+                            <option value="avg">Prom</option>
+                            <option value="max">Máx</option>
+                        </select>
+                    </div>
+                    <div class="tele-val" id="kpiVal2">0.0</div>
+                </div>
+
+                <!-- KPI 3 -->
+                <div class="tele-item">
+                    <div class="tele-header">
+                        <select class="kpi-select" id="kpiMetric3" onchange="actualizarKPIs()">
+                            <option value="vel">Velocidad</option>
+                            <option value="alt">Altitud</option>
+                            <option value="dist" selected>Distancia</option>
+                            <option value="pts">Puntos CSV</option>
+                        </select>
+                        <select class="stat-select" id="kpiStat3" onchange="actualizarKPIs()">
+                            <option value="inst" selected>Actual</option>
+                            <option value="min">Mín</option>
+                            <option value="avg">Prom</option>
+                            <option value="max">Máx</option>
+                        </select>
+                    </div>
+                    <div class="tele-val" id="kpiVal3">0.0</div>
+                </div>
+
+                <!-- KPI 4 -->
+                <div class="tele-item">
+                    <div class="tele-header">
+                        <select class="kpi-select" id="kpiMetric4" onchange="actualizarKPIs()">
+                            <option value="vel">Velocidad</option>
+                            <option value="alt">Altitud</option>
+                            <option value="dist">Distancia</option>
+                            <option value="pts" selected>Puntos CSV</option>
+                        </select>
+                        <select class="stat-select" id="kpiStat4" onchange="actualizarKPIs()">
+                            <option value="inst">Actual</option>
+                            <option value="min">Mín</option>
+                            <option value="avg">Prom</option>
+                            <option value="max" selected>Máx</option>
+                        </select>
+                    </div>
+                    <div class="tele-val" id="kpiVal4">0</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="speed-legend">
+            <span>Velocidad en Ruta:</span>
+            <div class="legend-bar"></div>
+            <div class="legend-labels">
+                <span id="minVelLabel">Mín</span>
+                <span id="maxVelLabel">Máx</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Control de Reproducción Inferior -->
+    <div class="player-panel">
+        <button class="btn-ctrl" onclick="reiniciarVuelo()" title="Reiniciar">⏮</button>
+        <button class="btn-ctrl btn-play" id="btnPlay" onclick="togglePlay()">▶</button>
+        
+        <span class="time-display" id="timeCurrent">00:00</span>
+        <input type="range" class="timeline-slider" id="timeSlider" min="0" max="100" value="0" step="0.01" oninput="seekVuelo(this.value)">
+        <span class="time-display" id="timeTotal">00:00</span>
+
+        <select class="speed-select" id="speedSelect" onchange="cambiarVelocidad(this.value)">
+            <option value="1">1x (Real)</option>
+            <option value="2">2x</option>
+            <option value="5">5x</option>
+            <option value="10">10x</option>
+        </select>
+
+        <label class="cam-toggle">
+            <input type="checkbox" id="camLock" checked onchange="toggleCamaraLock(this.checked)"> 🎥 Centrar
+        </label>
+    </div>
+
+    <!-- Leaflet JS -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        const map = L.map('map', { zoomControl: false }).setView([20, 0], 2);
+
+        const tileLayers = {
+            googleSat: L.tileLayer('https://{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {
+                maxZoom: 20,
+                subdomains: ['mt0', 'mt1', 'mt2', 'mt3'],
+                attribution: 'Google Satélite'
+            }),
+            googleStreets: L.tileLayer('https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
+                maxZoom: 20,
+                subdomains: ['mt0', 'mt1', 'mt2', 'mt3'],
+                attribution: 'Google Maps'
+            }),
+            esriSat: L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+                maxZoom: 19,
+                attribution: 'Esri World Imagery'
+            }),
+            osm: L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxZoom: 19,
+                attribution: '&copy; OpenStreetMap contributors'
+            })
+        };
+
+        let currentLayer = tileLayers.googleSat;
+        currentLayer.addTo(map);
+
+        function cambiarCapaMapa(tipo) {
+            if (tileLayers[tipo]) {
+                map.removeLayer(currentLayer);
+                currentLayer = tileLayers[tipo];
+                currentLayer.addTo(map);
+            }
+        }
+
+        let rawPointsGlobal = [];
+        let trayectorias = [];
+        let segmentLines = [];
+        let totalSegundos = 0;
+        let isPlaying = false;
+        let currentTimeSec = 0;
+        let playSpeed = 1;
+        let followCamera = true;
+        let planeMarker = null;
+        let animationFrameId = null;
+        let lastTimestamp = null;
+        let displayedVel = 0;
+
+        let vueloStats = {
+            vel: { min: 0, max: 0, avg: 0, inst: 0 },
+            alt: { min: 0, max: 0, avg: 0, inst: 0 },
+            dist: { min: 0, max: 0, avg: 0, inst: 0 },
+            pts: { min: 0, max: 0, avg: 0, inst: 0 }
+        };
+
+        function resetearVisor() {
+            if (isPlaying) togglePlay();
+
+            if (planeMarker) {
+                map.removeLayer(planeMarker);
+                planeMarker = null;
+            }
+
+            limpiarLineasMapa();
+
+            trayectorias = [];
+            segmentLines = [];
+            totalSegundos = 0;
+            currentTimeSec = 0;
+            displayedVel = 0;
+
+            document.getElementById('timeCurrent').innerText = "00:00";
+            document.getElementById('timeTotal').innerText = "00:00";
+            document.getElementById('timeSlider').value = 0;
+        }
+
+        function limpiarLineasMapa() {
+            if (segmentLines && segmentLines.length > 0) {
+                segmentLines.forEach(s => {
+                    if (map.hasLayer(s.polyline)) map.removeLayer(s.polyline);
+                });
+            }
+        }
+
+        function cargarCSV(file) {
+            if (!file) return;
+            resetearVisor();
+            document.getElementById('statusText').innerText = "Cargando CSV...";
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    procesarTextoCSV(e.target.result);
+                    document.getElementById('statusText').innerText = "¡CSV Cargado con éxito!";
+                } catch(err) {
+                    alert("Error al leer el archivo CSV: " + err.message);
+                    document.getElementById('statusText').innerText = "Error de archivo";
+                }
+            };
+            reader.readAsText(file);
+        }
+
+        window.addEventListener('dragover', e => e.preventDefault());
+        window.addEventListener('drop', e => {
+            e.preventDefault();
+            if (e.dataTransfer.files.length) cargarCSV(e.dataTransfer.files[0]);
+        });
+
+        function calcularHaversine(lat1, lon1, lat2, lon2) {
+            const R = 6371000;
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLon = (lon2 - lon1) * Math.PI / 180;
+            const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180) * Math.cos(lat2*Math.PI/180) * Math.sin(dLon/2)**2;
+            return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        }
+
+        // Contraste Extremo: Amarillo casi blanco (#ffffe0) -> Naranja Intenso (#ff4500) -> Rojo casi negro (#380000)
+        function getSpeedColor(vel, minV, maxV) {
+            if (maxV === minV) maxV = minV + 1;
+            let ratio = (vel - minV) / (maxV - minV);
+            ratio = Math.max(0, Math.min(1, ratio));
+            
+            let red, green, blue;
+            if (ratio < 0.5) {
+                // De Amarillo Casi Blanco (#ffffe0) a Naranja Intenso (#ff4500)
+                let subRatio = ratio * 2;
+                red = Math.round(255);
+                green = Math.round(255 - (255 - 69) * subRatio);
+                blue = Math.round(224 - (224 - 0) * subRatio);
+            } else {
+                // De Naranja Intenso (#ff4500) a Rojo Casi Negro (#380000)
+                let subRatio = (ratio - 0.5) * 2;
+                red = Math.round(255 - (255 - 56) * subRatio);
+                green = Math.round(69 - (69 - 0) * subRatio);
+                blue = Math.round(0);
+            }
+            return `rgb(${red}, ${green}, ${blue})`;
+        }
+
+        function parseCSVLine(text) {
+            let result = [];
+            let current = '';
+            let inQuotes = false;
+            for (let i = 0; i < text.length; i++) {
+                let char = text[i];
+                if (char === '"') {
+                    inQuotes = !inQuotes;
+                } else if ((char === ',' || char === ';') && !inQuotes) {
+                    result.push(current.trim());
+                    current = '';
+                } else {
+                    current += char;
+                }
+            }
+            result.push(current.trim());
+            return result;
+        }
+
+        function procesarTextoCSV(csvText) {
+            let lines = csvText.split(/\r\n|\n/);
+            if (lines.length < 2) throw new Error("El archivo CSV está vacío.");
+
+            let headers = parseCSVLine(lines[0]).map(h => h.replace(/^["']|["']$/g, '').trim());
+            
+            let idxLat = headers.findIndex(h => h.toLowerCase().includes('lat'));
+            let idxLon = headers.findIndex(h => h.toLowerCase().includes('lon'));
+            let idxAlt = headers.findIndex(h => h.toLowerCase().includes('alt') && !h.toLowerCase().includes('gps'));
+            if (idxAlt === -1) idxAlt = headers.findIndex(h => h.toLowerCase().includes('alt'));
+            let idxVel = headers.findIndex(h => h.toLowerCase().includes('vel') || h.toLowerCase().includes('speed'));
+
+            if (idxLat === -1 || idxLon === -1) {
+                idxLat = 2; idxLon = 3; idxAlt = 4; idxVel = 5;
+            }
+
+            rawPointsGlobal = [];
+            let distAcumulada = 0;
+
+            for (let i = 1; i < lines.length; i++) {
+                let line = lines[i].trim();
+                if (!line) continue;
+                let cols = parseCSVLine(line);
+                if (cols.length <= Math.max(idxLat, idxLon)) continue;
+
+                let lat = parseFloat(cols[idxLat].replace(',', '.'));
+                let lon = parseFloat(cols[idxLon].replace(',', '.'));
+                let alt = idxAlt !== -1 && cols[idxAlt] ? parseFloat(cols[idxAlt].replace(',', '.')) : 0;
+                let vel = idxVel !== -1 && cols[idxVel] ? parseFloat(cols[idxVel].replace(',', '.')) : 0;
+
+                if (isNaN(lat) || isNaN(lon)) continue;
+
+                let timeSec = (i - 1) * 0.2;
+
+                if (i > 1) {
+                    let prev = rawPointsGlobal[rawPointsGlobal.length - 1];
+                    distAcumulada += calcularHaversine(prev.lat, prev.lon, lat, lon);
+                }
+
+                rawPointsGlobal.push({
+                    time: timeSec,
+                    lat: lat,
+                    lon: lon,
+                    alt: alt,
+                    vel: vel,
+                    dist: distAcumulada
+                });
+            }
+
+            if (rawPointsGlobal.length < 2) throw new Error("No hay suficientes puntos válidos en el CSV.");
+
+            aplicarFiltroSuavizado();
+
+            let latLngs = trayectorias.map(pt => [pt.lat, pt.lon]);
+            let bounds = L.latLngBounds(latLngs);
+            map.fitBounds(bounds, { padding: [50, 50] });
+
+            displayedVel = trayectorias[0].vel;
+            seekVuelo(0);
+        }
+
+        function cambiarSuavizado(val) {
+            let n = parseInt(val);
+            document.getElementById('smoothValLabel').innerText = n === 0 ? "0 (Off)" : n + " pts";
+            if (rawPointsGlobal.length > 0) {
+                let currentT = currentTimeSec;
+                aplicarFiltroSuavizado();
+                seekVuelo(Math.min(currentT, totalSegundos));
+            }
+        }
+
+        function aplicarFiltroSuavizado() {
+            let windowSize = parseInt(document.getElementById('smoothSlider').value);
+
+            let minVel = Infinity, maxVel = -Infinity;
+            let minAlt = Infinity, maxAlt = -Infinity;
+            let sumVel = 0, sumAlt = 0;
+
+            trayectorias = [];
+            limpiarLineasMapa();
+
+            for (let i = 0; i < rawPointsGlobal.length; i++) {
+                let lat = rawPointsGlobal[i].lat;
+                let lon = rawPointsGlobal[i].lon;
+                let alt = rawPointsGlobal[i].alt;
+                let vel = rawPointsGlobal[i].vel;
+
+                if (windowSize > 0) {
+                    let start = Math.max(0, i - Math.floor(windowSize / 2));
+                    let end = Math.min(rawPointsGlobal.length - 1, i + Math.floor(windowSize / 2));
+                    let sumLat = 0, sumLon = 0, sumAlt = 0, sumVeloc = 0;
+                    let count = 0;
+
+                    for (let j = start; j <= end; j++) {
+                        sumLat += rawPointsGlobal[j].lat;
+                        sumLon += rawPointsGlobal[j].lon;
+                        sumAlt += rawPointsGlobal[j].alt;
+                        sumVeloc += rawPointsGlobal[j].vel;
+                        count++;
+                    }
+                    lat = sumLat / count;
+                    lon = sumLon / count;
+                    alt = sumAlt / count;
+                    vel = sumVeloc / count;
+                }
+
+                if (vel < minVel) minVel = vel;
+                if (vel > maxVel) maxVel = vel;
+                if (alt < minAlt) minAlt = alt;
+                if (alt > maxAlt) maxAlt = alt;
+
+                sumVel += vel;
+                sumAlt += alt;
+
+                trayectorias.push({
+                    time: rawPointsGlobal[i].time,
+                    lat: lat,
+                    lon: lon,
+                    alt: alt,
+                    vel: vel,
+                    dist: rawPointsGlobal[i].dist
+                });
+            }
+
+            totalSegundos = trayectorias[trayectorias.length - 1].time;
+            document.getElementById('timeTotal').innerText = formatMMSS(totalSegundos);
+            document.getElementById('timeSlider').max = totalSegundos;
+
+            let avgVelFlight = sumVel / trayectorias.length;
+            let avgAltFlight = sumAlt / trayectorias.length;
+            let totalDistFlight = trayectorias[trayectorias.length - 1].dist;
+            let totalPtsFlight = trayectorias.length;
+
+            vueloStats.vel = { min: minVel, max: maxVel, avg: avgVelFlight, inst: minVel };
+            vueloStats.alt = { min: minAlt, max: maxAlt, avg: avgAltFlight, inst: trayectorias[0].alt };
+            vueloStats.dist = { min: 0, max: totalDistFlight, avg: totalDistFlight / 2, inst: 0 };
+            vueloStats.pts = { min: totalPtsFlight, max: totalPtsFlight, avg: totalPtsFlight, inst: totalPtsFlight };
+
+            document.getElementById('minVelLabel').innerText = minVel.toFixed(0) + " km/h";
+            document.getElementById('maxVelLabel').innerText = maxVel.toFixed(0) + " km/h";
+
+            segmentLines = [];
+            for (let i = 1; i < trayectorias.length; i++) {
+                let pPrev = trayectorias[i - 1];
+                let pCurr = trayectorias[i];
+                let avgSegVel = (pPrev.vel + pCurr.vel) / 2;
+                let color = getSpeedColor(avgSegVel, minVel, maxVel);
+
+                let polyline = L.polyline([[pPrev.lat, pPrev.lon], [pCurr.lat, pCurr.lon]], {
+                    color: color,
+                    weight: 4,
+                    opacity: 0.9
+                });
+
+                segmentLines.push({
+                    time: pCurr.time,
+                    polyline: polyline
+                });
+            }
+
+            if (!planeMarker && trayectorias.length > 0) {
+                planeMarker = L.circleMarker([trayectorias[0].lat, trayectorias[0].lon], {
+                    radius: 8,
+                    fillColor: '#00e676',
+                    color: '#000',
+                    weight: 2,
+                    fillOpacity: 1
+                }).addTo(map);
+            }
+
+            actualizarKPIs();
+        }
+
+        function togglePlay() {
+            if (!trayectorias.length) return;
+            isPlaying = !isPlaying;
+            document.getElementById('btnPlay').innerText = isPlaying ? "⏸" : "▶";
+
+            if (isPlaying) {
+                lastTimestamp = performance.now();
+                animationFrameId = requestAnimationFrame(updateLoop);
+            } else {
+                cancelAnimationFrame(animationFrameId);
+            }
+        }
+
+        function updateLoop(now) {
+            if (!isPlaying) return;
+
+            let dt = (now - lastTimestamp) / 1000;
+            lastTimestamp = now;
+
+            currentTimeSec += dt * playSpeed;
+
+            if (currentTimeSec >= totalSegundos) {
+                currentTimeSec = totalSegundos;
+                actualizarEstado(currentTimeSec);
+                togglePlay();
+                return;
+            }
+
+            actualizarEstado(currentTimeSec);
+            animationFrameId = requestAnimationFrame(updateLoop);
+        }
+
+        function seekVuelo(val) {
+            currentTimeSec = parseFloat(val);
+            actualizarEstado(currentTimeSec);
+        }
+
+        function actualizarEstado(tSec) {
+            document.getElementById('timeSlider').value = tSec;
+            document.getElementById('timeCurrent').innerText = formatMMSS(tSec);
+
+            if (!trayectorias.length) return;
+
+            let nextIdx = trayectorias.findIndex(p => p.time >= tSec);
+            if (nextIdx === -1) nextIdx = trayectorias.length - 1;
+            
+            let pCurr, pPrev;
+            if (nextIdx === 0) {
+                pCurr = trayectorias[0];
+                pPrev = trayectorias[0];
+            } else {
+                pCurr = trayectorias[nextIdx];
+                pPrev = trayectorias[nextIdx - 1];
+            }
+
+            let lat = pCurr.lat;
+            let lon = pCurr.lon;
+            let alt = pCurr.alt;
+            let dist = pCurr.dist;
+            let targetVel = pCurr.vel;
+
+            let timeDiff = pCurr.time - pPrev.time;
+            if (timeDiff > 0) {
+                let factor = (tSec - pPrev.time) / timeDiff;
+                factor = Math.max(0, Math.min(1, factor));
+
+                lat = pPrev.lat + (pCurr.lat - pPrev.lat) * factor;
+                lon = pPrev.lon + (pCurr.lon - pPrev.lon) * factor;
+                alt = pPrev.alt + (pCurr.alt - pPrev.alt) * factor;
+                dist = pPrev.dist + (pCurr.dist - pPrev.dist) * factor;
+                targetVel = pPrev.vel + (pCurr.vel - pPrev.vel) * factor;
+            }
+
+            displayedVel += (targetVel - displayedVel) * 0.15;
+
+            vueloStats.vel.inst = displayedVel;
+            vueloStats.alt.inst = alt;
+            vueloStats.dist.inst = dist;
+
+            actualizarKPIs();
+
+            segmentLines.forEach(seg => {
+                if (seg.time <= tSec) {
+                    if (!map.hasLayer(seg.polyline)) seg.polyline.addTo(map);
+                } else {
+                    if (map.hasLayer(seg.polyline)) map.removeLayer(seg.polyline);
+                }
+            });
+
+            if (planeMarker) {
+                planeMarker.setLatLng([lat, lon]);
+            }
+
+            if (followCamera) {
+                map.panTo([lat, lon], { animate: false });
+            }
+        }
+
+        function actualizarKPIs() {
+            for (let i = 1; i <= 4; i++) {
+                let metric = document.getElementById(`kpiMetric${i}`).value;
+                let stat = document.getElementById(`kpiStat${i}`).value;
+                let valElem = document.getElementById(`kpiVal${i}`);
+
+                let val = vueloStats[metric][stat] || 0;
+                let formattedVal = formatKPIValue(metric, val);
+                valElem.innerText = formattedVal;
+            }
+        }
+
+        function formatKPIValue(metric, val) {
+            if (metric === 'vel') {
+                return val.toFixed(1) + " km/h";
+            } else if (metric === 'alt') {
+                return val.toFixed(1) + " m";
+            } else if (metric === 'dist') {
+                return val > 1000 ? (val/1000).toFixed(2) + " km" : val.toFixed(0) + " m";
+            } else if (metric === 'pts') {
+                return Math.round(val);
+            }
+            return val.toFixed(1);
+        }
+
+        function cambiarVelocidad(val) {
+            playSpeed = parseFloat(val);
+        }
+
+        function reiniciarVuelo() {
+            seekVuelo(0);
+        }
+
+        function toggleCamaraLock(active) {
+            followCamera = active;
+        }
+
+        function formatMMSS(segs) {
+            let m = Math.floor(segs / 60);
+            let s = Math.floor(segs % 60);
+            return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+        }
+    </script>
+</body>
+</html>
